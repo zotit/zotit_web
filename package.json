@@ -1,0 +1,32 @@
+{
+  "name": "zotit-web",
+  "private": true,
+  "version": "1.7.3",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:web": "vite build --mode web",
+    "build:ext": "vite build --mode extension",
+    "package:release": "bash scripts/package-release.sh",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "format": "prettier -w .",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@lucide/svelte": "^0.542.0",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/chrome": "^0.0.284",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-svelte": "^3.0.0",
+    "prettier": "^3.0.0",
+    "prettier-plugin-svelte": "^3.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0"
+  }
+}
