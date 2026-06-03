@@ -20,6 +20,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@types/chrome": "^0.0.284",
+    "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-svelte": "^3.0.0",

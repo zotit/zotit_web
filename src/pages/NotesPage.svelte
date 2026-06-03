@@ -158,35 +158,34 @@
 </script>
 
 <style>
-  /* Full-width Notes page on web, without changing other pages */
-  :global(.shell) {
+  /* Full-width notes layout on hosted web only */
+  :global(html[data-surface='web'] .shell) {
     width: 100%;
     max-width: 100%;
   }
 
-  :global(.shell > .card) {
+  :global(html[data-surface='web'] .shell > .card) {
     width: 100%;
   }
 
-  /* Make only the content area scroll, keep topbar sticky */
-  :global(body) {
+  :global(html[data-surface='web'] body) {
     overflow: hidden;
   }
 
   .page {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 28px);
-    min-height: 520px;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
   }
 
   .stickyTop {
     position: sticky;
     top: 0;
     z-index: 20;
-    padding-bottom: 10px;
-    background: color-mix(in srgb, var(--panel) 78%, transparent);
     backdrop-filter: blur(10px);
+    margin-bottom: 1rem;
   }
 
   .scrollArea {

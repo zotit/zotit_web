@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build web + Chrome + Firefox extension zips for GitHub Release.
+# Build web + Chrome + Firefox extension zips for GitHub Release (both MV3).
 # Usage: ./scripts/package-release.sh [v1.7.2]   (version optional, strips leading v)
 set -euo pipefail
 
@@ -35,10 +35,10 @@ npm run build:web
 )
 
 package_extension() {
-  local target="$1"   # chrome | firefox
+  local target="$1"       # chrome | firefox
   local manifest_src="$2"
 
-  echo "==> Building ${target} extension…"
+  echo "==> Building ${target} extension (MV3)…"
   npm run build:ext
 
   local stage="$ROOT/build/${target}_ext"
@@ -56,8 +56,8 @@ package_extension() {
   echo "    → $ARTIFACTS/${target}-dist.zip"
 }
 
-package_extension "chrome" "$ROOT/ext_data/manifests/manifest3.json"
-package_extension "firefox" "$ROOT/ext_data/manifests/manifest2.json"
+package_extension "chrome" "$ROOT/ext_data/manifests/manifest.json"
+package_extension "firefox" "$ROOT/ext_data/manifests/manifest-firefox.json"
 
 echo ""
 echo "Done. Version: ${VERSION}"

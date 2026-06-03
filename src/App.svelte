@@ -48,6 +48,7 @@
 
 <div class="shell">
   <div class="card" style="padding: 14px;">
+    <div class="view">
     {#if $isOpenRoute}
       <div class="row" style="margin-bottom: 8px;">
         <div class="topbarTitle">ZotIt</div>
@@ -77,6 +78,7 @@
     {:else if $route.name === 'updateProfile'}
       <UpdateProfilePage />
     {/if}
+    </div>
   </div>
 </div>
 

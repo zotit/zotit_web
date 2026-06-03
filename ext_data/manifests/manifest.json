@@ -15,11 +15,5 @@
     "default_popup": "index.html"
   },
   "permissions": ["storage"],
-  "host_permissions": ["https://zotit.app/*", "http://localhost/*"],
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "zotit@twobits.in",
-      "strict_min_version": "109.0"
-    }
-  }
+  "host_permissions": ["https://zotit.app/*"]
 }

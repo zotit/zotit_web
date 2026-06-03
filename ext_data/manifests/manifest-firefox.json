@@ -2,7 +2,8 @@
   "name": "ZotIt",
   "version": "1.7.2",
   "description": "Zot It Anywhere",
-  "browser_action": {
+  "manifest_version": 3,
+  "action": {
     "default_icon": {
       "16": "icons/zotit_16x16.png",
       "24": "icons/zotit_24x24.png",
@@ -13,12 +14,22 @@
     "default_title": "ZotIt",
     "default_popup": "index.html"
   },
-  "permissions": ["storage", "https://zotit.app/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://zotit.app/*"
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "zotit@twobits.in",
-      "strict_min_version": "109.0"
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "personallyIdentifyingInfo"
+        ]
+      }
     }
-  },
-  "manifest_version": 2
+  }
 }
