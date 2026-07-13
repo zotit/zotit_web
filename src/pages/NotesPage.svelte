@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import {
     assignTag,
     createNote,
@@ -9,6 +9,7 @@
     removeTag,
     shareNote,
     updateNote,
+    NOTES_PAGE_SIZE,
     type Note,
     type Tag,
   } from '../lib/api';
@@ -16,9 +17,9 @@
   import SideDrawer from '../components/SideDrawer.svelte';
   import { toggleTheme } from '../lib/theme';
   import IconButton from '../components/IconButton.svelte';
+  import LinkifiedText from '../components/LinkifiedText.svelte';
+  import ConfirmDialog from '../components/ConfirmDialog.svelte';
   import {
-    LayoutGrid,
-    List,
     Search,
     SearchX,
     RefreshCw,
@@ -29,14 +30,21 @@
     Eye,
     EyeOff,
     Trash2,
+    ExternalLink,
+    Plus,
+    StickyNote,
   } from '@lucide/svelte';
 
   let drawer = false;
   let busy = false;
+  let loadingMore = false;
+  let hasMore = true;
   let error = '';
+  let toast = '';
+
+  let scrollEl: HTMLDivElement | undefined;
 
   let isSearching = false;
-  let isGrid = false;
   let search = '';
   let selectedTagId = '';
 
@@ -45,47 +53,143 @@
   let page = 1;
 
   let newText = '';
+  let addingNote = false;
+  let composerCompact = false;
+  let composerFocused = false;
 
-  // simple “bottomsheet” modals
   let tagPickerFor: Note | null = null;
   let shareFor: Note | null = null;
+  let deleteFor: Note | null = null;
   let shareUsername = '';
 
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  let refreshing = false;
+
+  $: initialLoading = busy && notes.length === 0;
+  $: searchBlocked = search.length > 0 && search.length < 3;
+
+  function infiniteScroll(
+    node: HTMLElement,
+    params: { root: HTMLDivElement | undefined; enabled: boolean }
+  ) {
+    let observer: IntersectionObserver | undefined;
+
+    function update(p: { root: HTMLDivElement | undefined; enabled: boolean }) {
+      observer?.disconnect();
+      observer = undefined;
+      if (!p.enabled || !p.root) return;
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) void loadMore();
+        },
+        { root: p.root, rootMargin: '200px', threshold: 0 }
+      );
+      observer.observe(node);
+    }
+
+    update(params);
+    return { update, destroy: () => observer?.disconnect() };
+  }
+
   async function load(reset = false) {
-    busy = true;
+    if (reset) {
+      busy = true;
+      refreshing = true;
+      page = 1;
+      hasMore = true;
+    }
     error = '';
     try {
-      if (reset) page = 1;
-      const [tRes, nRes] = await Promise.all([
-        listTags(),
-        listNotes({ page, text: search, tag_id: selectedTagId || undefined }),
-      ]);
-      if (!tRes.ok) throw new Error(tRes.error);
-      if (!nRes.ok) throw new Error(nRes.error);
-      tags = tRes.data;
-      notes = reset ? nRes.data : [...notes, ...nRes.data];
+      if (reset) {
+        const [tRes, nRes] = await Promise.all([
+          listTags(),
+          listNotes({ page, text: search, tag_id: selectedTagId || undefined }),
+        ]);
+        if (!tRes.ok) throw new Error(tRes.error);
+        if (!nRes.ok) throw new Error(nRes.error);
+        tags = tRes.data;
+        notes = nRes.data;
+        hasMore = nRes.data.length >= NOTES_PAGE_SIZE;
+      } else {
+        const nRes = await listNotes({ page, text: search, tag_id: selectedTagId || undefined });
+        if (!nRes.ok) throw new Error(nRes.error);
+        notes = [...notes, ...nRes.data];
+        hasMore = nRes.data.length >= NOTES_PAGE_SIZE;
+      }
     } catch (e) {
+      if (!reset) page = Math.max(1, page - 1);
       error = e instanceof Error ? e.message : String(e);
     } finally {
       busy = false;
+      refreshing = false;
+      loadingMore = false;
     }
+  }
+
+  async function loadMore() {
+    if (!hasMore || loadingMore || busy || searchBlocked) return;
+    loadingMore = true;
+    page += 1;
+    await load(false);
+  }
+
+  function showToast(msg: string) {
+    toast = msg;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = ''), 2200);
+  }
+
+  function scheduleSearch() {
+    clearTimeout(searchTimer);
+    if (search.length > 0 && search.length < 3) return;
+    searchTimer = setTimeout(() => load(true), 300);
   }
 
   async function addNote() {
     const text = newText.trim();
-    if (!text) return;
+    if (!text || addingNote) return;
+
+    addingNote = true;
     busy = true;
     error = '';
+    newText = '';
+
     try {
       const res = await createNote({ text, is_obscure: false, tag_id: '' });
       if (!res.ok) throw new Error(res.error);
       notes = [res.data, ...notes];
-      newText = '';
+      showToast('Note added');
     } catch (e) {
+      newText = text;
       error = e instanceof Error ? e.message : String(e);
     } finally {
+      addingNote = false;
       busy = false;
     }
+  }
+
+  function onComposerKeydown(e: KeyboardEvent) {
+    if (e.repeat) return;
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      void addNote();
+    }
+  }
+
+  function onNotesScroll(e: Event) {
+    const top = (e.currentTarget as HTMLDivElement).scrollTop;
+    composerCompact = top > 48 && !composerFocused;
+  }
+
+  function onComposerFocus() {
+    composerFocused = true;
+    composerCompact = false;
+  }
+
+  function onComposerBlur() {
+    composerFocused = false;
+    if (scrollEl) composerCompact = scrollEl.scrollTop > 48;
   }
 
   async function toggleObscure(n: Note) {
@@ -96,27 +200,44 @@
     if (!res.ok) error = res.error;
   }
 
-  async function del(n: Note) {
-    if (!confirm('Delete this note?')) return;
+  async function confirmDelete() {
+    if (!deleteFor) return;
+    const n = deleteFor;
     busy = true;
     error = '';
     const res = await deleteNote(n.id);
     busy = false;
+    deleteFor = null;
     if (!res.ok) {
       error = res.error;
       return;
     }
     notes = notes.filter((x) => x.id !== n.id);
+    showToast('Note deleted');
+  }
+
+  function deletePreview(text: string) {
+    const oneLine = text.replace(/\s+/g, ' ').trim();
+    if (oneLine.length <= 80) return oneLine;
+    return `${oneLine.slice(0, 80)}…`;
+  }
+
+  async function copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copied');
+    } catch {
+      error = 'Could not copy to clipboard';
+    }
   }
 
   function chipText(tag: Tag | null | undefined) {
-    if (!tag?.name) return '+ Tag';
+    if (!tag?.name) return 'Tag';
     return tag.name;
   }
 
-  function tagBg(tag: Tag | null | undefined) {
-    const c = tag?.color ?? 0xff9e9e9e;
-    // Go stores uint; Flutter used ARGB int. We’ll just treat as hex RGB-ish.
+  function tagColor(tag: Tag | null | undefined) {
+    const c = tag?.color ?? 0xff64748b;
     const hex = c.toString(16).padStart(8, '0');
     return `#${hex.slice(2)}`;
   }
@@ -144,7 +265,7 @@
     try {
       const res = await shareNote(shareUsername.trim(), shareFor.id);
       if (!res.ok) throw new Error(res.error);
-      alert(typeof res.data === 'string' ? res.data : 'Shared');
+      showToast(typeof res.data === 'string' ? res.data : 'Shared');
       shareFor = null;
       shareUsername = '';
     } catch (e) {
@@ -154,312 +275,260 @@
     }
   }
 
+  function closeSearch() {
+    isSearching = false;
+    search = '';
+    selectedTagId = '';
+    load(true);
+  }
+
   onMount(() => load(true));
+  onDestroy(() => {
+    clearTimeout(searchTimer);
+    clearTimeout(toastTimer);
+  });
 </script>
-
-<style>
-  /* Full-width notes layout on hosted web only */
-  :global(html[data-surface='web'] .shell) {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  :global(html[data-surface='web'] .shell > .card) {
-    width: 100%;
-  }
-
-  :global(html[data-surface='web'] body) {
-    overflow: hidden;
-  }
-
-  .page {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 auto;
-    min-height: 0;
-    height: 100%;
-  }
-
-  .stickyTop {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    backdrop-filter: blur(10px);
-    margin-bottom: 1rem;
-  }
-
-  .scrollArea {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    padding-right: 2px;
-  }
-
-  .notesGrid {
-    display: grid;
-    gap: 10px;
-    grid-template-columns: 1fr;
-  }
-
-  @media (min-width: 720px) {
-    .notesGrid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 1100px) {
-    .notesGrid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-  @media (min-width: 1400px) {
-    .notesGrid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-  }
-  .notesGrid.list {
-    grid-template-columns: 1fr;
-  }
-
-  /* Prevent card internals from forcing horizontal overflow */
-  .noteHeaderRow,
-  .noteActionsRow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    min-width: 0;
-  }
-
-  .noteHeaderRow > *,
-  .noteActionsRow > * {
-    min-width: 0;
-  }
-
-  .noteChip {
-    max-width: 100%;
-    flex: 0 1 auto;
-  }
-
-  .noteActionsRow .btn {
-    flex: 0 0 auto;
-  }
-
-  .noteToggle {
-    margin-left: auto;
-  }
-
-  .noteActionsRow .spacer {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  /* Extra safety: never allow the card to exceed viewport width */
-  .noteCard {
-    max-width: 100%;
-    overflow: hidden;
-  }
-</style>
 
 <SideDrawer open={drawer} onClose={() => (drawer = false)} />
 
-<div class="page">
-  <div class="stickyTop">
-    <div class="topbar">
-      <div class="topbarTitle" style="margin-right: 6px;">ZotIt</div>
-      <IconButton title="Menu" ariaLabel="Menu" onClick={() => (drawer = true)}>
-        <Menu size={18} />
-      </IconButton>
-      <div class="spacer"></div>
-      <div class="topbarGroup">
-        <IconButton title="Theme" ariaLabel="Theme" variant="ghost" onClick={toggleTheme}>
-          <Palette size={18} />
-        </IconButton>
-
-        <IconButton
-          title={isGrid ? 'List view' : 'Grid view'}
-          ariaLabel="Toggle view"
-          onClick={() => (isGrid = !isGrid)}
-        >
-          {#if isGrid}
-            <List size={18} />
-          {:else}
-            <LayoutGrid size={18} />
-          {/if}
-        </IconButton>
-
-        <IconButton
-          title={isSearching ? 'Stop search' : 'Search'}
-          ariaLabel="Search"
-          onClick={() =>
-            (isSearching = !isSearching, !isSearching && (search = '', selectedTagId = '', load(true)))}
-        >
-          {#if isSearching}
-            <SearchX size={18} />
-          {:else}
-            <Search size={18} />
-          {/if}
-        </IconButton>
-
-        <IconButton title="Refresh" ariaLabel="Refresh" disabled={busy} onClick={() => load(true)}>
-          <RefreshCw size={18} />
-        </IconButton>
+<div class="notesApp">
+  <header class="notesHeader">
+    <div class="notesHeaderMain">
+      <button type="button" class="menuBtn" on:click={() => (drawer = true)} aria-label="Menu">
+        <Menu size={20} />
+      </button>
+      <div class="notesBrand">
+        <div class="topbarTitle">ZotIt</div>
+        <div class="notesSubtitle">{notes.length} notes</div>
       </div>
     </div>
-  </div>
+    <div class="notesToolbar">
+      <IconButton title="Theme" ariaLabel="Theme" variant="ghost" size="sm" onClick={toggleTheme}>
+        <Palette size={17} />
+      </IconButton>
+      <IconButton
+        title={isSearching ? 'Close search' : 'Search'}
+        ariaLabel="Search"
+        variant={isSearching ? 'primary' : 'ghost'}
+        size="sm"
+        onClick={() => (isSearching ? closeSearch() : (isSearching = true))}
+      >
+        {#if isSearching}
+          <SearchX size={17} />
+        {:else}
+          <Search size={17} />
+        {/if}
+      </IconButton>
+      <IconButton
+        title="Refresh"
+        ariaLabel="Refresh"
+        variant="ghost"
+        size="sm"
+        disabled={busy}
+        spin={refreshing}
+        onClick={() => load(true)}
+      >
+        <RefreshCw size={17} />
+      </IconButton>
+    </div>
+  </header>
 
-  <div class="scrollArea">
-    <div class="col" style="gap: 10px;">
-      {#if error}
-        <div
-          class="card"
-          style="padding: 10px; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08);"
-        >
-          <div style="font-weight: 600; margin-bottom: 4px;">Error</div>
-          <div class="muted" style="white-space: pre-wrap;">{error}</div>
-        </div>
-      {/if}
-
-      {#if isSearching}
-        <div class="card" style="padding: 10px;">
-          <div class="col" style="gap: 10px;">
-            <input
-              class="input"
-              placeholder="Search here… (min 3 letters)"
-              bind:value={search}
-              on:input={() => (search.length === 0 ? load(true) : search.length >= 3 && load(true))}
-            />
-            <div class="row" style="flex-wrap: wrap;">
-              <button
-                type="button"
-                class="chip"
-                on:click={() => (selectedTagId = '', load(true))}
-                style="opacity: {selectedTagId === '' ? 1 : 0.7}; background: transparent;"
-              >
-                <span class="chipLabel">All tags</span>
-              </button>
-              {#each tags as t (t.id)}
-                <button
-                  type="button"
-                  class="chip"
-                  on:click={() => (selectedTagId = t.id, load(true))}
-                  style="background: {tagBg(t)}; color: white; border-color: rgba(255,255,255,0.20); opacity: {selectedTagId===t.id ? 1 : 0.7};"
-                  title={t.name}
-                >
-                  <span class="chipLabel">{t.name}</span>
-                </button>
-              {/each}
-            </div>
-          </div>
-        </div>
-      {:else}
-        <div class="card" style="padding: 10px;">
-          <textarea class="textarea" placeholder="Zot it …" bind:value={newText}></textarea>
-          <div class="row" style="margin-top: 10px;">
-            <button class="btn primary" on:click={addNote} disabled={busy || !newText.trim()} title="Add note">
-              Done
-            </button>
-            <div class="spacer"></div>
-            <div class="muted" style="font-size: 12px;">{notes.length} notes</div>
-          </div>
-        </div>
-      {/if}
-
-      {#if notes.length === 0}
-        <div class="muted" style="padding: 10px; text-align: center;">No Notes Found</div>
-      {:else}
-        <div class="notesGrid" class:list={!isGrid}>
-          {#each notes as n (n.id)}
-            <div class="card noteCard" style="padding: 10px; border-radius: var(--radius-sm);">
-              <div class="noteHeaderRow">
-                <button
-                  type="button"
-                  class="chip noteChip"
-                  style="background: {tagBg(n.tag)}; color: white; border-color: rgba(255,255,255,0.20);"
-                  on:click={() => (tagPickerFor = n)}
-                  title="Change tag"
-                >
-                  <span class="chipLabel">{chipText(n.tag)}</span>
-                </button>
-                <button class="btn noteToggle" on:click={() => toggleObscure(n)} title="Show/Hide">
-                  {#if n.is_obscure}
-                    <Eye size={16} style="margin-right:6px;" /> <span class="hideOnXs">Show</span>
-                  {:else}
-                    <EyeOff size={16} style="margin-right:6px;" /> <span class="hideOnXs">Hide</span>
-                  {/if}
-                </button>
-              </div>
-
-              <button
-                type="button"
-                style="
-                  margin-top: 10px;
-                  white-space: pre-wrap;
-                  line-height: 1.35;
-                  filter: {n.is_obscure ? 'blur(4px)' : 'none'};
-                  cursor: pointer;
-                  max-height: {isGrid ? '120px' : 'none'};
-                  overflow: hidden;
-                  border: 0;
-                  padding: 0;
-                  text-align: left;
-                  width: 100%;
-                  background: transparent;
-                  color: inherit;
-                "
-                on:click={() => nav(`note?id=${encodeURIComponent(n.id)}`)}
-                title="Open note details"
-              >
-                {n.text}
-              </button>
-
-              <div class="noteActionsRow" style="margin-top: 10px;">
-                <button class="btn" on:click={() => navigator.clipboard.writeText(n.text)} title="Copy">
-                  <Copy size={16} style="margin-right:6px;" /> <span class="hideOnXs">Copy</span>
-                </button>
-                <button class="btn" on:click={() => (shareFor = n)} title="Share">
-                  <Share2 size={16} style="margin-right:6px;" /> <span class="hideOnXs">Share</span>
-                </button>
-                <div class="spacer"></div>
-                <button class="btn danger" on:click={() => del(n)} disabled={busy} title="Delete">
-                  <Trash2 size={16} style="margin-right:6px;" /> <span class="hideOnXs">Delete</span>
-                </button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-
-      <div class="row" style="justify-content: center; margin-top: 10px;">
+  {#if isSearching}
+    <section class="notesPanel searchPanel">
+      <input
+        class="input searchInput"
+        placeholder="Search notes (min 3 letters)…"
+        bind:value={search}
+        on:input={scheduleSearch}
+      />
+      <div class="tagRow">
         <button
-          class="btn"
-          disabled={busy || (search.length > 0 && search.length < 3)}
-          on:click={() => (page += 1, load(false))}
+          type="button"
+          class="tagPill"
+          class:tagPillActive={selectedTagId === ''}
+          on:click={() => (selectedTagId = '', load(true))}
         >
-          Load more
+          All
+        </button>
+        {#each tags as t (t.id)}
+          <button
+            type="button"
+            class="tagPill"
+            class:tagPillActive={selectedTagId === t.id}
+            style="--pill-color: {tagColor(t)}"
+            on:click={() => (selectedTagId = t.id, load(true))}
+            title={t.name}
+          >
+            {t.name}
+          </button>
+        {/each}
+      </div>
+    </section>
+  {:else}
+    <section class="notesPanel composerPanel" class:compact={composerCompact}>
+      <textarea
+        class="textarea composerInput"
+        placeholder={composerCompact ? 'Zot it…' : "What's on your mind?"}
+        rows={composerCompact ? 1 : 2}
+        bind:value={newText}
+        on:keydown={onComposerKeydown}
+        on:focus={onComposerFocus}
+        on:blur={onComposerBlur}
+      ></textarea>
+      <div class="composerBar">
+        <span class="composerHint">⌘/Ctrl + Enter</span>
+        <button
+          class="btn primary composerAdd"
+          on:click={addNote}
+          disabled={addingNote || busy || !newText.trim()}
+          title="Add note"
+        >
+          <Plus size={16} />
+          <span class="composerAddLabel">Add</span>
         </button>
       </div>
-    </div>
+    </section>
+  {/if}
+
+  <div class="notesScroll" bind:this={scrollEl} on:scroll={onNotesScroll}>
+    {#if error}
+      <div class="alert alert-error notesAlert">
+        <div class="alert-title">Error</div>
+        <div class="muted" style="white-space: pre-wrap;">{error}</div>
+      </div>
+    {/if}
+
+    {#if initialLoading}
+      <div class="listLoading">
+        {#each Array(3) as _, i (i)}
+          <div class="noteSkeleton"></div>
+        {/each}
+      </div>
+    {:else if notes.length === 0}
+      <div class="emptyState">
+        <StickyNote size={36} strokeWidth={1.25} />
+        <p>No notes yet</p>
+        <span class="muted">Capture something with the box above</span>
+      </div>
+    {:else}
+      <ul class="noteList">
+        {#each notes as n (n.id)}
+          <li class="noteItem" style="--accent: {tagColor(n.tag)}">
+            <div class="noteItemTop">
+              <button
+                type="button"
+                class="tagPill"
+                style="--pill-color: {tagColor(n.tag)}"
+                on:click={() => (tagPickerFor = n)}
+                title="Change tag"
+              >
+                {chipText(n.tag)}
+              </button>
+              <div class="noteItemActions">
+                <IconButton
+                  title={n.is_obscure ? 'Show' : 'Hide'}
+                  ariaLabel={n.is_obscure ? 'Show note' : 'Hide note'}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => toggleObscure(n)}
+                >
+                  {#if n.is_obscure}
+                    <Eye size={16} />
+                  {:else}
+                    <EyeOff size={16} />
+                  {/if}
+                </IconButton>
+                <IconButton
+                  title="Open"
+                  ariaLabel="Open note"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => nav(`note?id=${encodeURIComponent(n.id)}`)}
+                >
+                  <ExternalLink size={16} />
+                </IconButton>
+                <IconButton
+                  title={n.is_obscure ? 'Show to copy' : 'Copy'}
+                  ariaLabel="Copy"
+                  variant="ghost"
+                  size="sm"
+                  disabled={n.is_obscure}
+                  onClick={() => copyText(n.text)}
+                >
+                  <Copy size={16} />
+                </IconButton>
+                <IconButton
+                  title="Share"
+                  ariaLabel="Share"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => (shareFor = n)}
+                >
+                  <Share2 size={16} />
+                </IconButton>
+                <IconButton
+                  title="Delete"
+                  ariaLabel="Delete"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => (deleteFor = n)}
+                >
+                  <Trash2 size={16} />
+                </IconButton>
+              </div>
+            </div>
+
+            <div class="noteBody" class:obscure={n.is_obscure} aria-hidden={n.is_obscure}>
+              {#if n.is_obscure}
+                {n.text}
+              {:else}
+                <LinkifiedText text={n.text} />
+              {/if}
+            </div>
+          </li>
+        {/each}
+      </ul>
+
+      {#if hasMore}
+        <div
+          class="listFooter"
+          use:infiniteScroll={{ root: scrollEl, enabled: hasMore && !loadingMore && !searchBlocked }}
+        >
+          {#if loadingMore}
+            <span class="listFooterSpin"><RefreshCw size={16} /></span>
+            <span>Loading more…</span>
+          {:else}
+            <span class="muted">Scroll for more</span>
+          {/if}
+        </div>
+      {:else}
+        <div class="listFooter listFooterEnd">
+          <span class="muted">You're all caught up</span>
+        </div>
+      {/if}
+    {/if}
   </div>
 </div>
 
 {#if tagPickerFor}
-  <button type="button" style="position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 80; border: 0; padding: 0;" on:click={() => (tagPickerFor = null)} aria-label="Close"></button>
-  <div class="card" style="position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 90; padding: 12px;">
-    <div style="font-weight: 700; margin-bottom: 8px;">Pick a tag</div>
-    <div class="row" style="flex-wrap: wrap;">
-      <button type="button" class="chip" on:click={() => chooseTag('')} style="background: transparent;">
-        <span class="chipLabel">Remove tag</span>
+  <button type="button" class="overlay" on:click={() => (tagPickerFor = null)} aria-label="Close"></button>
+  <div class="card sheet">
+    <div class="sheetTitle">Pick a tag</div>
+    <div class="tagRow">
+      <button type="button" class="tagPill" on:click={() => chooseTag('')}>
+        Remove tag
       </button>
       {#each tags as t (t.id)}
         <button
           type="button"
-          class="chip"
-          style="background: {tagBg(t)}; color: white; border-color: rgba(255,255,255,0.20);"
+          class="tagPill"
+          class:tagPillActive={tagPickerFor?.tag?.id === t.id}
+          style="--pill-color: {tagColor(t)}"
           on:click={() => chooseTag(t.id)}
           title={t.name}
         >
-          <span class="chipLabel">{t.name}</span>
+          {t.name}
         </button>
       {/each}
     </div>
@@ -467,17 +536,32 @@
 {/if}
 
 {#if shareFor}
-  <button type="button" style="position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 80; border: 0; padding: 0;" on:click={() => (shareFor = null)} aria-label="Close"></button>
-  <div class="card" style="position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 90; padding: 12px;">
-    <div style="font-weight: 700; margin-bottom: 8px;">Share note</div>
+  <button type="button" class="overlay" on:click={() => (shareFor = null, shareUsername = '')} aria-label="Close"></button>
+  <div class="card sheet">
+    <div class="sheetTitle">Share note</div>
     <div class="col" style="gap: 10px;">
-      <input class="input" placeholder="Enter zotit username of receiver" bind:value={shareUsername} />
+      <input class="input" placeholder="Receiver's ZotIt username" bind:value={shareUsername} />
       <div class="row">
-        <button class="btn primary" on:click={doShare} disabled={busy || !shareUsername.trim()}>Done</button>
+        <button class="btn primary" on:click={doShare} disabled={busy || !shareUsername.trim()}>Share</button>
         <div class="spacer"></div>
-        <button class="btn" on:click={() => (shareFor = null, shareUsername = '')}>Cancel</button>
+        <button class="btn ghost" on:click={() => (shareFor = null, shareUsername = '')}>Cancel</button>
       </div>
     </div>
   </div>
 {/if}
 
+{#if toast}
+  <div class="toast" role="status">{toast}</div>
+{/if}
+
+<ConfirmDialog
+  open={!!deleteFor}
+  title="Delete note?"
+  message={deleteFor ? `This note will be moved to trash.\n\n“${deletePreview(deleteFor.text)}”` : ''}
+  confirmLabel="Delete"
+  cancelLabel="Cancel"
+  variant="danger"
+  busy={busy}
+  onConfirm={() => void confirmDelete()}
+  onCancel={() => (deleteFor = null)}
+/>

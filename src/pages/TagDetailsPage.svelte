@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { createTag, listTags, updateTag, type Tag } from '../lib/api';
+  import { createTag, listTags, updateTag } from '../lib/api';
   import { nav } from '../lib/router';
+  import PageShell from '../components/PageShell.svelte';
+  import FormField from '../components/FormField.svelte';
+  import IconButton from '../components/IconButton.svelte';
+  import { ArrowLeft } from '@lucide/svelte';
 
   export let id: string;
 
@@ -32,11 +36,11 @@
 
   function toUintFromHex(hex: string): number {
     const h = hex.replace('#', '').padStart(6, '0');
-    // Store as ARGB-like int: 0xffRRGGBB (matches Flutter usage)
     return parseInt(`ff${h}`, 16);
   }
 
   async function save() {
+    if (busy) return;
     busy = true;
     error = '';
     const payload = { name: name.trim(), color: toUintFromHex(color) };
@@ -52,27 +56,31 @@
   onMount(boot);
 </script>
 
-<div class="col" style="gap: 10px;">
-  <div class="row">
-    <button class="btn" on:click={() => nav('tags')}>Back</button>
-    <div class="spacer"></div>
-    <div class="muted">{id ? 'Edit tag' : 'New tag'}</div>
-  </div>
+<PageShell title={id ? 'Edit tag' : 'New tag'} subtitle="Name and color for your label">
+  <svelte:fragment slot="actions">
+    <IconButton title="Back" ariaLabel="Back to tags" variant="ghost" size="sm" onClick={() => nav('tags')}>
+      <ArrowLeft size={18} />
+    </IconButton>
+  </svelte:fragment>
 
   {#if error}
-    <div class="card" style="padding: 10px; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Error</div>
-      <div class="muted" style="white-space: pre-wrap;">{error}</div>
+    <div class="alert alert-error">
+      <div class="alert-title">Error</div>
+      <div class="muted">{error}</div>
     </div>
   {/if}
 
-  <input class="input" placeholder="Tag name" bind:value={name} />
-  <div class="row">
-    <input class="input" type="color" bind:value={color} style="width: 64px; padding: 4px;" />
-    <div class="muted">Pick color</div>
+  <div class="notesPanel formPanel">
+    <FormField label="Tag name" bind:value={name} placeholder="e.g. Work" />
+    <label class="field">
+      <span class="fieldLabel">Color</span>
+      <div class="colorPickerRow">
+        <input class="colorInput" type="color" bind:value={color} />
+        <span class="tagPill previewPill" style="--pill-color: {color}">{name.trim() || 'Preview'}</span>
+      </div>
+    </label>
+    <button class="btn primary authSubmit" disabled={busy || !name.trim()} on:click={save}>
+      {busy ? 'Saving…' : 'Save tag'}
+    </button>
   </div>
-  <button class="btn primary" disabled={busy || !name.trim()} on:click={save}>
-    {busy ? 'Saving…' : 'Save'}
-  </button>
-</div>
-
+</PageShell>

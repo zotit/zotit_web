@@ -1,8 +1,11 @@
+import { writable } from 'svelte/store';
 import { loadAuth } from './storage';
 
 type ThemeMode = 'dark' | 'light';
 
 const KEY = 'zotit_theme';
+
+export const theme = writable<ThemeMode>('dark');
 
 function hasChromeStorage(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.storage?.local;
@@ -43,5 +46,6 @@ export async function toggleTheme() {
 
 export function applyTheme(mode: ThemeMode) {
   document.body.dataset.theme = mode;
+  theme.set(mode);
 }
 

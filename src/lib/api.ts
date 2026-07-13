@@ -1,4 +1,5 @@
 import { apiBase } from '../env';
+import { ensureValidSession } from './session';
 import { clearAuth, loadAuth, saveAuth, type StoredAuth } from './storage';
 
 export type LoginResponse = { token: string; refresh_token: string; is_active: boolean };
@@ -14,6 +15,9 @@ export type Note = {
   tag?: Tag | null;
 };
 
+/** Matches Go handler page size in handlers/notes.go */
+export const NOTES_PAGE_SIZE = 20;
+
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
 async function jsonFetch<T extends Json>(
@@ -21,9 +25,19 @@ async function jsonFetch<T extends Json>(
   init: RequestInit & { retryOnAuth?: boolean } = {}
 ): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
   const auth = await loadAuth();
+  const needsAuth = init.retryOnAuth !== false && !!auth?.token;
+
+  if (needsAuth) {
+    const valid = await ensureValidSession();
+    if (!valid) {
+      return { ok: false, status: 401, error: 'Session expired. Please sign in again.' };
+    }
+  }
+
+  const currentAuth = await loadAuth();
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
-  if (auth?.token) headers.set('Authorization', `Bearer ${auth.token}`);
+  if (currentAuth?.token) headers.set('Authorization', `Bearer ${currentAuth.token}`);
 
   const res = await fetch(`${apiBase()}${path.startsWith('/') ? path : `/${path}`}`, {
     ...init,
@@ -44,8 +58,8 @@ async function jsonFetch<T extends Json>(
   const err = text.replaceAll('"', '') || res.statusText;
 
   // Attempt refresh on 401 once
-  if (res.status === 401 && init.retryOnAuth !== false && auth?.refresh_token) {
-    const refreshed = await refresh(auth.refresh_token);
+  if (res.status === 401 && init.retryOnAuth !== false && currentAuth?.refresh_token) {
+    const refreshed = await refresh(currentAuth.refresh_token);
     if (refreshed.ok) {
       return jsonFetch(path, { ...init, retryOnAuth: false });
     }

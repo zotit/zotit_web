@@ -3,11 +3,16 @@
   import { deleteTag, listTags, type Tag } from '../lib/api';
   import { nav } from '../lib/router';
   import SideDrawer from '../components/SideDrawer.svelte';
+  import PageShell from '../components/PageShell.svelte';
+  import IconButton from '../components/IconButton.svelte';
+  import ConfirmDialog from '../components/ConfirmDialog.svelte';
+  import { Plus, RefreshCw } from '@lucide/svelte';
 
   let drawer = false;
   let busy = false;
   let error = '';
   let tags: Tag[] = [];
+  let deleteFor: Tag | null = null;
 
   async function load() {
     busy = true;
@@ -21,17 +26,19 @@
     tags = res.data;
   }
 
-  function tagBg(t: Tag) {
+  function tagColor(t: Tag) {
     const hex = t.color.toString(16).padStart(8, '0');
     return `#${hex.slice(2)}`;
   }
 
-  async function remove(t: Tag) {
-    if (!confirm(`Delete tag "${t.name}"?`)) return;
+  async function confirmDelete() {
+    if (!deleteFor) return;
+    const t = deleteFor;
     busy = true;
     error = '';
     const res = await deleteTag(t.id);
     busy = false;
+    deleteFor = null;
     if (!res.ok) {
       error = res.error;
       return;
@@ -44,39 +51,52 @@
 
 <SideDrawer open={drawer} onClose={() => (drawer = false)} />
 
-<div class="col" style="gap: 10px;">
-  <div class="row">
-    <button class="btn" on:click={() => (drawer = true)}>☰</button>
-    <div class="spacer"></div>
-    <div style="font-weight: 700;">Tags</div>
-    <div class="spacer"></div>
-    <button class="btn" on:click={load} disabled={busy}>Refresh</button>
-    <button class="btn primary" on:click={() => nav('tag')} disabled={busy}>+ Add</button>
-  </div>
+<PageShell title="Tags" subtitle="Organize notes with colored labels" showMenu onMenu={() => (drawer = true)}>
+  <svelte:fragment slot="actions">
+    <IconButton title="Refresh" ariaLabel="Refresh" variant="ghost" size="sm" disabled={busy} onClick={load}>
+      <RefreshCw size={17} />
+    </IconButton>
+    <IconButton title="Add tag" ariaLabel="Add tag" variant="primary" size="sm" disabled={busy} onClick={() => nav('tag')}>
+      <Plus size={17} />
+    </IconButton>
+  </svelte:fragment>
 
   {#if error}
-    <div class="card" style="padding: 10px; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Error</div>
-      <div class="muted" style="white-space: pre-wrap;">{error}</div>
+    <div class="alert alert-error">
+      <div class="alert-title">Error</div>
+      <div class="muted">{error}</div>
     </div>
   {/if}
 
   {#if tags.length === 0}
-    <div class="muted" style="padding: 10px; text-align:center;">No Tags Found</div>
-  {:else}
-    <div class="col" style="gap: 10px;">
-      {#each tags as t (t.id)}
-        <div class="card" style="padding: 10px;">
-          <div class="row">
-            <div style="width: 18px; height: 18px; border-radius: 999px; background: {tagBg(t)}; border: 1px solid var(--border);"></div>
-            <div style="font-weight: 600;">{t.name}</div>
-            <div class="spacer"></div>
-            <button class="btn" on:click={() => nav(`tag?id=${encodeURIComponent(t.id)}`)}>Edit</button>
-            <button class="btn danger" on:click={() => remove(t)} disabled={busy}>Delete</button>
-          </div>
-        </div>
-      {/each}
+    <div class="emptyState">
+      <p>No tags yet</p>
+      <span class="muted">Create one to label your notes</span>
     </div>
+  {:else}
+    <ul class="tagManageList">
+      {#each tags as t (t.id)}
+        <li class="tagManageItem">
+          <button type="button" class="tagPill" style="--pill-color: {tagColor(t)}" on:click={() => nav(`tag?id=${encodeURIComponent(t.id)}`)}>
+            {t.name}
+          </button>
+          <div class="tagManageActions">
+            <button type="button" class="btn ghost" on:click={() => nav(`tag?id=${encodeURIComponent(t.id)}`)}>Edit</button>
+            <button type="button" class="btn danger" on:click={() => (deleteFor = t)} disabled={busy}>Delete</button>
+          </div>
+        </li>
+      {/each}
+    </ul>
   {/if}
-</div>
+</PageShell>
 
+<ConfirmDialog
+  open={!!deleteFor}
+  title="Delete tag?"
+  message={deleteFor ? `Remove “${deleteFor.name}” from your account.` : ''}
+  confirmLabel="Delete"
+  variant="danger"
+  busy={busy}
+  onConfirm={() => void confirmDelete()}
+  onCancel={() => (deleteFor = null)}
+/>

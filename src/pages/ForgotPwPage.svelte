@@ -1,6 +1,8 @@
 <script lang="ts">
   import { forgotpw } from '../lib/api';
   import { nav } from '../lib/router';
+  import AuthLayout from '../components/AuthLayout.svelte';
+  import FormField from '../components/FormField.svelte';
 
   let busy = false;
   let error = '';
@@ -8,6 +10,7 @@
   let username = '';
 
   async function submit() {
+    if (busy) return;
     busy = true;
     error = '';
     message = '';
@@ -18,32 +21,40 @@
       return;
     }
     message = typeof res.data === 'string' ? res.data : 'Check your email for reset instructions.';
-    // In Flutter, this leads to a one-time password flow that ends in resetpw/activate.
     nav('resetpw');
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') void submit();
   }
 </script>
 
-<div class="col" style="gap: 10px;">
-  <div class="muted">Reset password</div>
-
+<AuthLayout title="Reset password" subtitle="We'll send a one-time password to your registered email.">
   {#if error}
-    <div class="card" style="padding: 10px; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Error</div>
-      <div class="muted" style="white-space: pre-wrap;">{error}</div>
+    <div class="alert alert-error">
+      <div class="alert-title">Request failed</div>
+      <div class="muted">{error}</div>
     </div>
   {/if}
 
   {#if message}
-    <div class="card" style="padding: 10px; border-color: rgba(52,211,153,0.30); background: rgba(52,211,153,0.10);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Sent</div>
-      <div class="muted" style="white-space: pre-wrap;">{message}</div>
+    <div class="alert alert-success">
+      <div class="alert-title">Email sent</div>
+      <div class="muted">{message}</div>
     </div>
   {/if}
 
-  <input class="input" placeholder="Username / EmailID" bind:value={username} on:keydown={(e)=>e.key==='Enter' && submit()} />
-  <button class="btn primary" disabled={busy || !username.trim()} on:click={submit}>
-    {busy ? 'Sending…' : 'Reset Password'}
-  </button>
-  <button class="btn" on:click={() => nav('login')}>Sign in</button>
-</div>
+  <FormField
+    label="Username or email"
+    bind:value={username}
+    placeholder="Account username or email"
+    on:keydown={onKeydown}
+  />
 
+  <div class="authActions">
+    <button class="btn primary authSubmit" disabled={busy || !username.trim()} on:click={submit}>
+      {busy ? 'Sending…' : 'Send reset email'}
+    </button>
+    <button type="button" class="linkBtn authBackLink" on:click={() => nav('login')}>Back to sign in</button>
+  </div>
+</AuthLayout>

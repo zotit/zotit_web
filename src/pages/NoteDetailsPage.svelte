@@ -1,24 +1,25 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { listNotes, updateNote, type Note } from '../lib/api';
+  import { listNotes, updateNote } from '../lib/api';
   import { nav } from '../lib/router';
+  import PageShell from '../components/PageShell.svelte';
+  import { ArrowLeft } from '@lucide/svelte';
+  import IconButton from '../components/IconButton.svelte';
 
   export let id: string;
 
   let busy = false;
   let error = '';
-  let note: Note | null = null;
   let text = '';
 
   async function load() {
     busy = true;
     error = '';
     try {
-      // Backend doesn’t have a GET /notes/:id, so we fetch page 1 and match.
       const res = await listNotes({ page: 1 });
       if (!res.ok) throw new Error(res.error);
-      note = res.data.find((n) => n.id === id) ?? null;
-      if (!note) throw new Error('Note not found in page 1. Open it from Notes list.');
+      const note = res.data.find((n) => n.id === id) ?? null;
+      if (!note) throw new Error('Note not found. Open it from your notes list.');
       text = note.text;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -28,6 +29,7 @@
   }
 
   async function save() {
+    if (busy) return;
     busy = true;
     error = '';
     try {
@@ -44,23 +46,24 @@
   onMount(load);
 </script>
 
-<div class="col" style="gap: 10px;">
-  <div class="row">
-    <button class="btn" on:click={() => nav('notes')}>Back</button>
-    <div class="spacer"></div>
-    <div class="muted">Note details</div>
-  </div>
+<PageShell title="Edit note" subtitle="Update your note text">
+  <svelte:fragment slot="actions">
+    <IconButton title="Back" ariaLabel="Back to notes" variant="ghost" size="sm" onClick={() => nav('notes')}>
+      <ArrowLeft size={18} />
+    </IconButton>
+  </svelte:fragment>
 
   {#if error}
-    <div class="card" style="padding: 10px; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Error</div>
-      <div class="muted" style="white-space: pre-wrap;">{error}</div>
+    <div class="alert alert-error">
+      <div class="alert-title">Error</div>
+      <div class="muted">{error}</div>
     </div>
   {/if}
 
-  <textarea class="textarea" style="min-height: 220px;" bind:value={text} placeholder="Zot it ..."></textarea>
-  <button class="btn primary" on:click={save} disabled={busy || !text.trim()}>
-    {busy ? 'Updating…' : 'Update Text'}
-  </button>
-</div>
-
+  <div class="notesPanel formPanel">
+    <textarea class="textarea editorArea" bind:value={text} placeholder="Zot it…"></textarea>
+    <button class="btn primary authSubmit" on:click={save} disabled={busy || !text.trim()}>
+      {busy ? 'Saving…' : 'Save changes'}
+    </button>
+  </div>
+</PageShell>

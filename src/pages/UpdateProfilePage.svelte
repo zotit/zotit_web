@@ -3,12 +3,16 @@
   import { deleteProfile, me, updateProfile } from '../lib/api';
   import { nav } from '../lib/router';
   import SideDrawer from '../components/SideDrawer.svelte';
+  import PageShell from '../components/PageShell.svelte';
+  import FormField from '../components/FormField.svelte';
   import { loadAuth, saveAuth } from '../lib/storage';
 
   let drawer = false;
   let busy = false;
   let error = '';
   let message = '';
+  let showDeleteConfirm = false;
+  let deletePassword = '';
 
   let username = '';
   let email = '';
@@ -35,6 +39,7 @@
   }
 
   async function save() {
+    if (busy) return;
     busy = true;
     error = '';
     message = '';
@@ -46,24 +51,29 @@
     }
     const auth = await loadAuth();
     if (auth) await saveAuth({ ...auth, username: username.trim() });
-    message = 'Updated Profile';
+    message = 'Profile updated';
   }
 
-  async function removeAccount() {
-    const password = prompt('Enter your password to delete account') ?? '';
-    if (!password.trim()) return;
-    const reason = prompt('Reason (optional)') ?? '';
-    const other = prompt('Other reason (optional)') ?? '';
+  async function confirmDeleteAccount() {
+    if (!deletePassword.trim()) {
+      error = 'Password is required';
+      return;
+    }
     busy = true;
     error = '';
     message = '';
-    const res = await deleteProfile({ password: password.trim(), reason, reason_other: other });
+    const res = await deleteProfile({
+      password: deletePassword.trim(),
+      reason: '',
+      reason_other: '',
+    });
     busy = false;
+    showDeleteConfirm = false;
+    deletePassword = '';
     if (!res.ok) {
       error = res.error;
       return;
     }
-    alert(typeof res.data === 'string' ? res.data : 'Account deletion in progress.');
     nav('login');
   }
 
@@ -72,36 +82,49 @@
 
 <SideDrawer open={drawer} onClose={() => (drawer = false)} />
 
-<div class="col" style="gap: 10px;">
-  <div class="row">
-    <button class="btn" on:click={() => (drawer = true)}>☰</button>
-    <div class="spacer"></div>
-    <div style="font-weight: 700;">Update Profile</div>
-    <div class="spacer"></div>
-    <button class="btn" on:click={boot} disabled={busy}>Refresh</button>
-  </div>
-
+<PageShell title="Profile" subtitle="Update your account details" showMenu onMenu={() => (drawer = true)}>
   {#if error}
-    <div class="card" style="padding: 10px; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Error</div>
-      <div class="muted" style="white-space: pre-wrap;">{error}</div>
+    <div class="alert alert-error">
+      <div class="alert-title">Error</div>
+      <div class="muted">{error}</div>
     </div>
   {/if}
 
   {#if message}
-    <div class="card" style="padding: 10px; border-color: rgba(52,211,153,0.30); background: rgba(52,211,153,0.10);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Success</div>
-      <div class="muted" style="white-space: pre-wrap;">{message}</div>
+    <div class="alert alert-success">
+      <div class="alert-title">Saved</div>
+      <div class="muted">{message}</div>
     </div>
   {/if}
 
-  <input class="input" placeholder="Username" bind:value={username} />
-  <input class="input" placeholder="Email Id" bind:value={email} />
-  <button class="btn primary" disabled={busy || !username.trim() || !validEmail(email)} on:click={save}>
-    {busy ? 'Updating…' : 'Update Profile'}
-  </button>
+  <div class="notesPanel formPanel">
+    <FormField label="Username" bind:value={username} placeholder="Username" autocomplete="username" />
+    <FormField label="Email" type="email" bind:value={email} placeholder="Email address" autocomplete="email" />
+    <button class="btn primary authSubmit" disabled={busy || !username.trim() || !validEmail(email)} on:click={save}>
+      {busy ? 'Saving…' : 'Save profile'}
+    </button>
+  </div>
 
-  <div style="height: 22px;"></div>
-  <button class="btn danger" on:click={removeAccount} disabled={busy}>Delete Profile</button>
-</div>
+  <div class="dangerZone">
+    <p class="dangerZoneTitle">Danger zone</p>
+    <p class="muted dangerZoneText">Permanently delete your account and all notes.</p>
+    <button class="btn danger" on:click={() => (showDeleteConfirm = true)} disabled={busy}>
+      Delete account
+    </button>
+  </div>
+</PageShell>
 
+{#if showDeleteConfirm}
+  <button type="button" class="overlay" on:click={() => (showDeleteConfirm = false)} aria-label="Close"></button>
+  <div class="confirmDialog card" role="alertdialog">
+    <div class="confirmTitle">Delete account?</div>
+    <p class="confirmMessage">This cannot be undone. Enter your password to confirm.</p>
+    <FormField label="Password" type="password" bind:value={deletePassword} placeholder="Your password" />
+    <div class="confirmActions">
+      <button type="button" class="btn ghost" on:click={() => (showDeleteConfirm = false)} disabled={busy}>Cancel</button>
+      <button type="button" class="btn danger" on:click={() => void confirmDeleteAccount()} disabled={busy || !deletePassword.trim()}>
+        {busy ? 'Deleting…' : 'Delete account'}
+      </button>
+    </div>
+  </div>
+{/if}

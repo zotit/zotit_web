@@ -2,7 +2,8 @@
   import { onDestroy, onMount } from 'svelte';
   import { auth, syncAuth } from './lib/auth';
   import { route, nav, isOpenRoute } from './lib/router';
-  import { initTheme, toggleTheme } from './lib/theme';
+  import { ensureValidSession, startSessionWatcher } from './lib/session';
+  import { initTheme } from './lib/theme';
 
   import LoginPage from './pages/LoginPage.svelte';
   import RegisterPage from './pages/RegisterPage.svelte';
@@ -18,6 +19,7 @@
   async function boot() {
     await initTheme();
     await syncAuth();
+    await ensureValidSession();
   }
 
   const unsubRoute = route.subscribe(async (r) => {
@@ -42,21 +44,18 @@
   onDestroy(() => {
     unsubRoute();
     unsubAuth();
+    stopSessionWatcher?.();
   });
-  onMount(boot);
+  let stopSessionWatcher: (() => void) | undefined;
+  onMount(() => {
+    void boot();
+    stopSessionWatcher = startSessionWatcher();
+  });
 </script>
 
 <div class="shell">
-  <div class="card" style="padding: 14px;">
+  <div class="card appCard" class:appCardAuth={$isOpenRoute}>
     <div class="view">
-    {#if $isOpenRoute}
-      <div class="row" style="margin-bottom: 8px;">
-        <div class="topbarTitle">ZotIt</div>
-        <div class="spacer"></div>
-        <button class="btn ghost" on:click={toggleTheme} title="Toggle theme">Theme</button>
-      </div>
-    {/if}
-
     {#if $route.name === 'login'}
       <LoginPage />
     {:else if $route.name === 'register'}

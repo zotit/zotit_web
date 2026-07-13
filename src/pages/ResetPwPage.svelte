@@ -1,33 +1,33 @@
 <script lang="ts">
   import { activate } from '../lib/api';
   import { nav } from '../lib/router';
+  import AuthLayout from '../components/AuthLayout.svelte';
+  import FormField from '../components/FormField.svelte';
 
   let busy = false;
   let error = '';
   let message = '';
+  let otp = '';
   let newPw = '';
   let confirmPw = '';
 
   async function submit() {
+    if (busy) return;
     if (newPw.length < 6) {
       error = 'Password must be at least 6 characters';
       return;
     }
     if (newPw !== confirmPw) {
-      error = 'Confirm password did not match';
+      error = 'Passwords do not match';
+      return;
+    }
+    if (!otp.trim()) {
+      error = 'One-time password from email is required';
       return;
     }
     busy = true;
     error = '';
     message = '';
-    // Flutter sends old_password as the one-time password stored in prefs.
-    // Here we ask user to paste the one-time password as "old password".
-    const otp = prompt('Paste the one-time password from the email (temporary password)') ?? '';
-    if (!otp.trim()) {
-      busy = false;
-      error = 'One-time password is required';
-      return;
-    }
     const res = await activate(otp.trim(), newPw);
     busy = false;
     if (!res.ok) {
@@ -39,30 +39,36 @@
   }
 </script>
 
-<div class="col" style="gap: 10px;">
-  <div class="muted">
-    If you received a one-time password from the reset email, you can set a new password now.
-  </div>
-
+<AuthLayout
+  title="Set new password"
+  subtitle="Paste the one-time password from your email, then choose a new password."
+>
   {#if error}
-    <div class="card" style="padding: 10px; border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Error</div>
-      <div class="muted" style="white-space: pre-wrap;">{error}</div>
+    <div class="alert alert-error">
+      <div class="alert-title">Could not reset</div>
+      <div class="muted">{error}</div>
     </div>
   {/if}
 
   {#if message}
-    <div class="card" style="padding: 10px; border-color: rgba(52,211,153,0.30); background: rgba(52,211,153,0.10);">
-      <div style="font-weight: 600; margin-bottom: 4px;">Success</div>
-      <div class="muted" style="white-space: pre-wrap;">{message}</div>
+    <div class="alert alert-success">
+      <div class="alert-title">Success</div>
+      <div class="muted">{message}</div>
     </div>
   {/if}
 
-  <input class="input" placeholder="New password" type="password" bind:value={newPw} />
-  <input class="input" placeholder="Re-enter password" type="password" bind:value={confirmPw} />
-  <button class="btn primary" disabled={busy || newPw.length < 6 || confirmPw.length < 6} on:click={submit}>
-    {busy ? 'Updating…' : 'Reset Password'}
-  </button>
-  <button class="btn" on:click={() => nav('login')}>Sign in</button>
-</div>
+  <FormField label="One-time password" bind:value={otp} placeholder="From your reset email" />
+  <FormField label="New password" type="password" bind:value={newPw} placeholder="At least 6 characters" autocomplete="new-password" />
+  <FormField label="Confirm password" type="password" bind:value={confirmPw} placeholder="Re-enter password" autocomplete="new-password" />
 
+  <div class="authActions">
+    <button
+      class="btn primary authSubmit"
+      disabled={busy || newPw.length < 6 || confirmPw.length < 6 || !otp.trim()}
+      on:click={submit}
+    >
+      {busy ? 'Updating…' : 'Update password'}
+    </button>
+    <button type="button" class="linkBtn authBackLink" on:click={() => nav('login')}>Back to sign in</button>
+  </div>
+</AuthLayout>
